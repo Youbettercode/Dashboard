@@ -107,7 +107,7 @@ def infer_and_prepare(df):
     # helpful columns
     if '__date' in df.columns:
         df['year'] = df['__date'].dt.year
-        df['month'] = df['__date'].dt.to_period('M').astype(str)
+
         df['month_start'] = df['__date'].dt.to_period('M').dt.to_timestamp()
 
     return df
@@ -191,7 +191,7 @@ selected_profit = st.sidebar.selectbox('Profit column (detected or computed)', o
 if selected_date != '__date':
     df['__date'] = pd.to_datetime(raw[selected_date], errors='coerce')
     df['year'] = df['__date'].dt.year
-    df['month'] = df['__date'].dt.to_period('M').astype(str)
+
     df['month_start'] = df['__date'].dt.to_period('M').dt.to_timestamp()
 
 if selected_revenue != '__revenue':
@@ -225,7 +225,7 @@ if group_cols:
 
 # compute KPIs
 agg = filtered.groupby('month_start').agg(revenue=('__revenue','sum'), profit=('__profit','sum')).reset_index().sort_values('month_start')
-agg['month'] = agg['month_start'].dt.to_period('M').astype(str)
+
 
 # MoM growth
 agg['revenue_prev'] = agg['revenue'].shift(1)
@@ -298,7 +298,7 @@ st.subheader('Monthly Revenue (pivot table)')
 if not rev_pivot.empty:
     st.dataframe(rev_pivot)
 else:
-    st.info('Not enough data for monthly pivot.').astype(float))
+
     else:
         st.info('Not enough data for heatmap.')
 
