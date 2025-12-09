@@ -292,9 +292,11 @@ with right:
         rev_pivot = rev_pivot[[i for i in range(1,13)]]
         # Replace numeric heatmap with color-coded heatmap
 # Heatmap removed per user request. Display numeric pivot table instead.
+# Heatmap fully removed to eliminate syntax errors
+# Simple revenue pivot table display
 st.subheader('Monthly Revenue (pivot table)')
 if not rev_pivot.empty:
-    st.dataframe(rev_pivot.fillna(0).astype(float))
+    st.dataframe(rev_pivot)
 else:
     st.info('Not enough data for monthly pivot.').astype(float))
     else:
