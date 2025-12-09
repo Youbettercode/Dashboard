@@ -292,12 +292,14 @@ with right:
         rev_pivot = rev_pivot[[i for i in range(1,13)]]
         # Replace numeric heatmap with color-coded heatmap
 st.subheader('Monthly Revenue Heatmap')
+# Completely rebuilt heatmap block to fix syntax and indentation errors
 try:
     import plotly.express as px
-    fig_hm = px.imshow(rev_pivot.fillna(0), text_auto=True, aspect='auto', color_continuous_scale='YlOrRd')
+    heatmap_data = rev_pivot.fillna(0)
+    fig_hm = px.imshow(heatmap_data, text_auto=True, aspect='auto', color_continuous_scale='YlOrRd')
     st.plotly_chart(fig_hm, use_container_width=True)
 except Exception:
-    st.dataframe(rev_pivot.fillna(0).astype(float))
+    st.dataframe(heatmap_data).astype(float))
     else:
         st.info('Not enough data for heatmap.')
 
