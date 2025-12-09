@@ -294,15 +294,15 @@ with right:
 # Heatmap removed per user request. Display numeric pivot table instead.
 # Heatmap fully removed to eliminate syntax errors
 # Simple revenue pivot table display
-st.subheader('Monthly Revenue (pivot table)')
-if not rev_pivot.empty:
-    st.dataframe(rev_pivot)
-else:
+#st.subheader('Monthly Revenue (pivot table)')
+#if not rev_pivot.empty:
+ #   st.dataframe(rev_pivot)
+#else:
 
-    else:
-        st.info('Not enough data for heatmap.')
+    #else:
+        #st.info('Not enough data for heatmap.')
 
-st.markdown('---')
+#st.markdown('---')
 
 # Additional analysis
 st.subheader('Deeper analysis')
