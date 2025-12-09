@@ -1,4 +1,3 @@
-
 # streamlit_app.py
 # Streamlit interactive dashboard for Appliances4Less (Richmond)
 # Features:
@@ -165,9 +164,20 @@ if 'Month' in raw.columns:
     raw['Year'] = mdt.dt.year
 
 # Use Grand Total as revenue if available
+# Also force profit column to use 'Gross Profit(w/o Tax)' if present
+if 'Gross Profit(w/o Tax)' in raw.columns:
+    raw['__profit'] = pd.to_numeric(raw['Gross Profit(w/o Tax)'], errors='coerce')
+
 if 'Grand Total' in raw.columns:
     raw['__revenue'] = pd.to_numeric(raw['Grand Total'], errors='coerce')
 # === End custom cleanup ===
+
+# Add data preview table
+data_preview = st.sidebar.checkbox('Show raw data preview', value=False)
+if data_preview:
+    st.subheader('Raw Data Preview')
+    st.dataframe(raw.head(200))
+
 df = infer_and_prepare(raw)
 
 # Let user override detected columns if needed
@@ -280,7 +290,16 @@ with right:
     if not rev_pivot.empty:
         rev_pivot = rev_pivot.reindex(sorted(rev_pivot.index), axis=0)
         rev_pivot = rev_pivot[[i for i in range(1,13)]]
-        st.dataframe(rev_pivot.fillna(0).astype(float))
+        # Replace numeric heatmap with color-coded heatmap
+st.subheader('Monthly Revenue Heatmap')
+try:
+    import seaborn as sns
+    import matplotlib.pyplot as plt
+    fig_hm, ax_hm = plt.subplots(figsize=(6,4))
+    sns.heatmap(rev_pivot.fillna(0), annot=True, fmt='.0f', ax=ax_hm)
+    st.pyplot(fig_hm)
+except:
+    st.dataframe(rev_pivot.fillna(0).astype(float))(0).astype(float))
     else:
         st.info('Not enough data for heatmap.')
 
