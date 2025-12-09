@@ -293,13 +293,10 @@ with right:
         # Replace numeric heatmap with color-coded heatmap
 st.subheader('Monthly Revenue Heatmap')
 try:
-    import seaborn as sns
-    import matplotlib.pyplot as plt
-    fig_hm, ax_hm = plt.subplots(figsize=(8,4))
-    sns.heatmap(rev_pivot.fillna(0), annot=True, fmt='.0f', ax=ax_hm, cmap='YlOrRd')
-    st.pyplot(fig_hm)
+    import plotly.express as px
+    fig_hm = px.imshow(rev_pivot.fillna(0), text_auto=True, aspect='auto', color_continuous_scale='YlOrRd')
+    st.plotly_chart(fig_hm, use_container_width=True)
 except Exception:
-    # Fallback: display numeric pivot table
     st.dataframe(rev_pivot.fillna(0).astype(float))(0).astype(float))
     else:
         st.info('Not enough data for heatmap.')
