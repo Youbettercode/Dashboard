@@ -295,10 +295,11 @@ st.subheader('Monthly Revenue Heatmap')
 try:
     import seaborn as sns
     import matplotlib.pyplot as plt
-    fig_hm, ax_hm = plt.subplots(figsize=(6,4))
-    sns.heatmap(rev_pivot.fillna(0), annot=True, fmt='.0f', ax=ax_hm)
+    fig_hm, ax_hm = plt.subplots(figsize=(8,4))
+    sns.heatmap(rev_pivot.fillna(0), annot=True, fmt='.0f', ax=ax_hm, cmap='YlOrRd')
     st.pyplot(fig_hm)
-except:
+except Exception:
+    # Fallback: display numeric pivot table
     st.dataframe(rev_pivot.fillna(0).astype(float))(0).astype(float))
     else:
         st.info('Not enough data for heatmap.')
