@@ -1,3 +1,4 @@
+
 # streamlit_app.py
 # Streamlit interactive dashboard for Appliances4Less (Richmond)
 # Features:
@@ -150,6 +151,23 @@ if not dfs:
 raw = pd.concat(dfs, ignore_index=True)
 
 # preprocess
+# === Custom cleanup for fixed-format file ===
+cols_to_drop = [
+    'Data','Invoice#','Warranty(2-5Yrs)','Warranty 2-5Yrs(%)','Total Warranty','Delivery?',
+    'Delivery Fee','Delivery Fee/Item','Delivery Date','Accessory?','Accessory Fee',
+    'Accessory Fee/Item','Customer','Cashier','Source','Store','PO3A-ID'
+]
+raw = raw.drop(columns=[c for c in cols_to_drop if c in raw.columns], errors='ignore')
+
+# Add Year column based on Month column
+if 'Month' in raw.columns:
+    mdt = pd.to_datetime(raw['Month'], errors='coerce')
+    raw['Year'] = mdt.dt.year
+
+# Use Grand Total as revenue if available
+if 'Grand Total' in raw.columns:
+    raw['__revenue'] = pd.to_numeric(raw['Grand Total'], errors='coerce')
+# === End custom cleanup ===
 df = infer_and_prepare(raw)
 
 # Let user override detected columns if needed
