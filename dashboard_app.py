@@ -1,353 +1,260 @@
-# streamlit_app.py
-# Streamlit interactive dashboard for Appliances4Less (Richmond)
-# Features:
-# - Load 2024 & 2025 sales Excel files (or let user upload their own)
-# - Clean / infer key columns (date, revenue, cost, tax, profit)
-# - Compute: monthly revenue, MoM growth, monthly profit (w/o tax), YoY revenue
-# - Charts: KPI row, line charts, bar charts, heatmap, table, export
-# - Deployable to Streamlit Cloud or any server
-
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.express as px
 from datetime import datetime
+import plotly.express as px
 
-st.set_page_config(layout="wide", page_title="Appliances4Less — Sales Dashboard")
+st.set_page_config(
+    page_title="Appliances4Less Richmond - Sales Dashboard",
+    layout="wide"
+)
+
+# ---------- Data Loading ----------
 
 @st.cache_data
-def load_excel(path):
+def load_data(file_path: str = "24 & 25 Sales Summary.xlsx") -> pd.DataFrame:
+    """Load the fixed-format sales summary file."""
     try:
-        return pd.read_excel(path)
+        df = pd.read_excel(file_path)
+        return df
     except Exception as e:
-        st.error(f"Could not read {path}: {e}")
+        st.error(f"Error loading '{file_path}': {e}")
         return pd.DataFrame()
 
-@st.cache_data
-def infer_and_prepare(df):
-    # make a copy
-    df = df.copy()
-    # normalize columns
-    df.columns = [str(c).strip() for c in df.columns]
-    cols_lower = [c.lower() for c in df.columns]
+# For Streamlit Cloud, you can either:
+# 1) keep the Excel file in the repo root with this exact name, or
+# 2) use file_uploader below to override.
 
-    # Find date column
-    date_col = None
-    for candidate in ['date','sale date','sold date','transaction date','transaction_date','datetime']:
-        if candidate in cols_lower:
-            date_col = df.columns[cols_lower.index(candidate)]
-            break
-    if date_col is None:
-        # fallback: first datetime-like column
-        for c in df.columns:
-            try:
-                pd.to_datetime(df[c])
-                date_col = c
-                break
-            except:
-                continue
-    if date_col is None:
-        st.warning('No date column detected. Please ensure a date column exists or upload a file with a date column.')
-    else:
-        df['__date'] = pd.to_datetime(df[date_col], errors='coerce')
+st.sidebar.header("Data Source")
 
-    # Revenue column detection
-    revenue_col = None
-    for candidate in ['total','amount','sale amount','revenue','sale','total sale','total_amount','grand total','grand_total']:
-        if candidate in cols_lower:
-            revenue_col = df.columns[cols_lower.index(candidate)]
-            break
-    if revenue_col is None:
-        # try columns containing 'total' or 'amount'
-        for i,c in enumerate(cols_lower):
-            if 'total' in c or 'amount' in c or 'sale' in c:
-                revenue_col = df.columns[i]
-                break
-    if revenue_col is None:
-        st.warning('No revenue column detected automatically. You can select manually in the sidebar.')
-    else:
-        df['__revenue'] = pd.to_numeric(df[revenue_col], errors='coerce')
+use_default = st.sidebar.checkbox(
+    "Use bundled file: '24 & 25 Sales Summary.xlsx'",
+    value=True
+)
 
-    # Try to get tax/cost/profit
-    cost_col = None
-    for candidate in ['cost','unit cost','cogs','cost_of_goods','cost_of_goods_sold']:
-        if candidate in cols_lower:
-            cost_col = df.columns[cols_lower.index(candidate)]
-            break
-    if cost_col is not None:
-        df['__cost'] = pd.to_numeric(df[cost_col], errors='coerce')
+uploaded_file = st.sidebar.file_uploader(
+    "Or upload a Sales Summary file",
+    type=["xlsx", "xls"],
+    accept_multiple_files=False
+)
 
-    tax_col = None
-    for candidate in ['tax','sales tax','tax_amount']:
-        if candidate in cols_lower:
-            tax_col = df.columns[cols_lower.index(candidate)]
-            break
-    if tax_col is not None:
-        df['__tax'] = pd.to_numeric(df[tax_col], errors='coerce')
-
-    profit_col = None
-    for candidate in ['profit','net','gross profit','profit_without_tax']:
-        if candidate in cols_lower:
-            profit_col = df.columns[cols_lower.index(candidate)]
-            break
-    if profit_col is not None:
-        df['__profit'] = pd.to_numeric(df[profit_col], errors='coerce')
-
-    # If profit not present but revenue and cost present, compute profit_without_tax
-    if '__profit' not in df.columns or df.get('__profit').isna().all():
-        if '__revenue' in df.columns and '__cost' in df.columns:
-            if '__tax' in df.columns:
-                df['__profit'] = df['__revenue'] - df['__cost'] - df['__tax']
-            else:
-                df['__profit'] = df['__revenue'] - df['__cost']
-        else:
-            # leave as NaN
-            df['__profit'] = pd.to_numeric(df.get('__profit'))
-
-    # helpful columns
-    if '__date' in df.columns:
-        df['year'] = df['__date'].dt.year
-
-        df['month_start'] = df['__date'].dt.to_period('M').dt.to_timestamp()
-
-    return df
-
-# --- UI: sidebar ---
-st.sidebar.title('Data inputs & options')
-st.sidebar.write('By default the app looks for the two uploaded files:')
-st.sidebar.write('- /mnt/data/A4L 2024 Sales data.xlsx\n- /mnt/data/A4L 2025 Sales data.xlsx')
-
-use_defaults = st.sidebar.checkbox('Load default 2024 & 2025 files from /mnt/data (if present)', value=True)
-
-uploaded_files = st.sidebar.file_uploader('Or upload one or more Excel/CSV files', type=['xlsx','xls','csv'], accept_multiple_files=True)
-
-if use_defaults and not uploaded_files:
-    paths = ['/mnt/data/A4L 2024 Sales data.xlsx','/mnt/data/A4L 2025 Sales data.xlsx']
-    dfs = []
-    for p in paths:
-        df = load_excel(p)
-        if not df.empty:
-            df['__source_file'] = p
-            dfs.append(df)
+if use_default:
+    df_raw = load_data()
 else:
-    dfs = []
-    for uf in uploaded_files:
-        try:
-            if uf.name.lower().endswith('.csv'):
-                df = pd.read_csv(uf)
-            else:
-                df = pd.read_excel(uf)
-            df['__source_file'] = uf.name
-            dfs.append(df)
-        except Exception as e:
-            st.sidebar.error(f'Error reading {uf.name}: {e}')
+    if uploaded_file is not None:
+        df_raw = pd.read_excel(uploaded_file)
+    else:
+        st.warning("No file loaded yet. Please upload a file or enable default file.")
+        st.stop()
 
-if not dfs:
-    st.warning('No data loaded yet. Upload files or enable default file loading in the sidebar.')
+if df_raw.empty:
+    st.warning("Loaded data is empty. Please check the file.")
     st.stop()
 
-# combine
-raw = pd.concat(dfs, ignore_index=True)
+# ---------- Schema Cleanup & Business Rules ----------
 
-# preprocess
-# === Custom cleanup for fixed-format file ===
+# 1) Only keep rows where Month has values
+if "Month" not in df_raw.columns:
+    st.error("Column 'Month' not found in the data. Please check your Excel format.")
+    st.dataframe(df_raw.head())
+    st.stop()
+
+df = df_raw[df_raw["Month"].notna()].copy()
+
+# 2) Drop columns you don't care about
 cols_to_drop = [
-    'Data','Invoice#','Warranty(2-5Yrs)','Warranty 2-5Yrs(%)','Total Warranty','Delivery?',
-    'Delivery Fee','Delivery Fee/Item','Delivery Date','Accessory?','Accessory Fee',
-    'Accessory Fee/Item','Customer','Cashier','Source','Store','PO3A-ID'
+    "Data", "Invoice#", "Warranty(2-5Yrs)", "Warranty 2-5Yrs(%)",
+    "Total Warranty", "Delivery?", "Delivery Fee", "Delivery Fee/Item",
+    "Delivery Date", "Accessory?", "Accessory Fee", "Accessory Fee/Item",
+    "Customer", "Cashier", "Source", "Store", "PO3A-ID"
 ]
-raw = raw.drop(columns=[c for c in cols_to_drop if c in raw.columns], errors='ignore')
+df = df.drop(columns=[c for c in cols_to_drop if c in df.columns], errors="ignore")
 
-# Add Year column based on Month column
-if 'Month' in raw.columns:
-    mdt = pd.to_datetime(raw['Month'], errors='coerce')
-    raw['Year'] = mdt.dt.year
+# 3) Create Year column based on Month
+# Try to parse Month as a date (e.g. '2024-01', 'Jan-24', etc.)
+month_parsed = pd.to_datetime(df["Month"], errors="coerce")
 
-# Use Grand Total as revenue if available
-# Also force profit column to use 'Gross Profit(w/o Tax)' if present
-if 'Gross Profit(w/o Tax)' in raw.columns:
-    raw['__profit'] = pd.to_numeric(raw['Gross Profit(w/o Tax)'], errors='coerce')
+df["Year"] = month_parsed.dt.year
+# We'll also create a normalized month_start date for grouping/plotting
+df["MonthStart"] = month_parsed.dt.to_period("M").dt.to_timestamp()
 
-if 'Grand Total' in raw.columns:
-    raw['__revenue'] = pd.to_numeric(raw['Grand Total'], errors='coerce')
-# === End custom cleanup ===
+# 4) Set Revenue and Profit
+if "Grand Total" not in df.columns:
+    st.error("Column 'Grand Total' (revenue) not found in the data.")
+    st.dataframe(df.head())
+    st.stop()
 
-# Add data preview table
-data_preview = st.sidebar.checkbox('Show raw data preview', value=False)
-if data_preview:
-    st.subheader('Raw Data Preview')
-    st.dataframe(raw.head(200))
+if "Gross Profit(w/o Tax)" not in df.columns:
+    st.error("Column 'Gross Profit(w/o Tax)' not found in the data.")
+    st.dataframe(df.head())
+    st.stop()
 
-df = infer_and_prepare(raw)
+df["Revenue"] = pd.to_numeric(df["Grand Total"], errors="coerce")
+df["Profit"] = pd.to_numeric(df["Gross Profit(w/o Tax)"], errors="coerce")
 
-# Let user override detected columns if needed
-st.sidebar.markdown('---')
-st.sidebar.subheader('Column overrides')
-col_options = list(raw.columns)
-selected_date = st.sidebar.selectbox('Date column (detected)', options=['__date'] + col_options, index=0)
-selected_revenue = st.sidebar.selectbox('Revenue column (detected)', options=['__revenue'] + col_options, index=0)
-selected_profit = st.sidebar.selectbox('Profit column (detected or computed)', options=['__profit'] + col_options, index=0)
+# Safety: drop rows with no MonthStart or Revenue
+df = df[df["MonthStart"].notna() & df["Revenue"].notna()].copy()
 
-if selected_date != '__date':
-    df['__date'] = pd.to_datetime(raw[selected_date], errors='coerce')
-    df['year'] = df['__date'].dt.year
+# ---------- Sidebar Filters ----------
 
-    df['month_start'] = df['__date'].dt.to_period('M').dt.to_timestamp()
+st.sidebar.header("Filters")
 
-if selected_revenue != '__revenue':
-    df['__revenue'] = pd.to_numeric(raw[selected_revenue], errors='coerce')
-if selected_profit != '__profit' and selected_profit in raw.columns:
-    df['__profit'] = pd.to_numeric(raw[selected_profit], errors='coerce')
+min_month = df["MonthStart"].min()
+max_month = df["MonthStart"].max()
 
-# Filters
-st.sidebar.markdown('---')
-st.sidebar.subheader('Filters')
-min_date = df['__date'].min()
-max_date = df['__date'].max()
-start_dt, end_dt = st.sidebar.date_input('Date range', value=[min_date.date() if pd.notna(min_date) else datetime.today().date(), max_date.date() if pd.notna(max_date) else datetime.today().date()])
+if pd.isna(min_month) or pd.isna(max_month):
+    st.error("Could not determine min/max Month from data.")
+    st.dataframe(df.head())
+    st.stop()
 
-mask = (df['__date'] >= pd.to_datetime(start_dt)) & (df['__date'] <= pd.to_datetime(end_dt))
-filtered = df.loc[mask].copy()
+start_date, end_date = st.sidebar.date_input(
+    "Month range",
+    value=[min_month.date(), max_month.date()]
+)
 
-# Optional grouping columns for business: store, cashier, payment method
-group_cols = []
-for key in ['store','location','cashier','payment method','payment','payment_method','method']:
-    if key in [c.lower() for c in filtered.columns]:
-        orig = filtered.columns[[c.lower() for c in filtered.columns].index(key)]
-        group_cols.append(orig)
+mask = (df["MonthStart"].dt.date >= start_date) & (df["MonthStart"].dt.date <= end_date)
+df_filtered = df.loc[mask].copy()
 
-# allow user to pick a grouping column
-group_by = None
-if group_cols:
-    group_by = st.sidebar.selectbox('Group data by (optional)', options=['(none)'] + group_cols, index=0)
-    if group_by == '(none)':
-        group_by = None
+if df_filtered.empty:
+    st.warning("No data in the selected date range.")
+    st.stop()
 
-# compute KPIs
-agg = filtered.groupby('month_start').agg(revenue=('__revenue','sum'), profit=('__profit','sum')).reset_index().sort_values('month_start')
+# ---------- Aggregations ----------
 
+# Monthly aggregation (Revenue + Profit)
+monthly = (
+    df_filtered
+    .groupby("MonthStart", as_index=False)
+    .agg(
+        Revenue=("Revenue", "sum"),
+        Profit=("Profit", "sum")
+    )
+    .sort_values("MonthStart")
+)
 
-# MoM growth
-agg['revenue_prev'] = agg['revenue'].shift(1)
-agg['revenue_mom_pct'] = (agg['revenue'] - agg['revenue_prev']) / agg['revenue_prev'] * 100
-agg['profit_prev'] = agg['profit'].shift(1)
-agg['profit_mom_pct'] = (agg['profit'] - agg['profit_prev']) / agg['profit_prev'] * 100
+# Month-over-month growth
+monthly["Revenue_prev"] = monthly["Revenue"].shift(1)
+monthly["Profit_prev"] = monthly["Profit"].shift(1)
 
-# YoY revenue: compare each month to same month last year
-agg['month_number'] = agg['month_start'].dt.month
-agg['year'] = agg['month_start'].dt.year
-agg['revenue_lag_12'] = agg.groupby('month_number')['revenue'].shift(12)
-agg['revenue_yoy_pct'] = (agg['revenue'] - agg['revenue_lag_12']) / agg['revenue_lag_12'] * 100
+monthly["Revenue_MoM_%"] = (monthly["Revenue"] - monthly["Revenue_prev"]) / monthly["Revenue_prev"] * 100
+monthly["Profit_MoM_%"] = (monthly["Profit"] - monthly["Profit_prev"]) / monthly["Profit_prev"] * 100
 
-# Layout
-st.title('Appliances4Less — Sales & Profit Dashboard (Richmond)')
-st.markdown('Use the sidebar to change data inputs, date range, and grouping')
+# Year column for monthly
+monthly["Year"] = monthly["MonthStart"].dt.year
+monthly["MonthLabel"] = monthly["MonthStart"].dt.strftime("%Y-%m")
 
-# KPI row
-latest = agg.iloc[-1] if not agg.empty else None
-col1, col2, col3, col4 = st.columns(4)
-if latest is not None:
-    col1.metric('Revenue (latest month)', f"${latest['revenue']:,.0f}", delta=f"{latest['revenue_mom_pct']:.2f}% MoM" if pd.notna(latest['revenue_mom_pct']) else "—")
-    col2.metric('Profit w/o tax (latest month)', f"${latest['profit']:,.0f}", delta=f"{latest['profit_mom_pct']:.2f}% MoM" if pd.notna(latest['profit_mom_pct']) else "—")
-    # Year to date revenue
-    ytd = agg[agg['month_start'].dt.year == latest['year']]['revenue'].sum()
-    col3.metric(f"YTD Revenue ({latest['year']})", f"${ytd:,.0f}")
-    # YoY for the same month last year
-    yoy_txt = f"{latest['revenue_yoy_pct']:.2f}% YoY" if pd.notna(latest['revenue_yoy_pct']) else '—'
-    col4.metric('YoY (same month)', yoy_txt)
-else:
-    st.info('Not enough data to compute KPIs. Please adjust your date range or upload data.')
+# Yearly aggregation for YoY
+yearly = (
+    df_filtered
+    .groupby("Year", as_index=False)
+    .agg(
+        Revenue=("Revenue", "sum"),
+        Profit=("Profit", "sum")
+    )
+    .sort_values("Year")
+)
 
-st.markdown('---')
+# ---------- Layout: Title & Raw Preview ----------
 
-# Charts area
-left, right = st.columns((2,1))
+st.title("Appliances4Less Richmond — Sales Summary Dashboard")
+
+with st.expander("🔍 Raw Data Preview (after cleaning)"):
+    st.write("Showing only rows where `Month` has values and after dropping unused columns.")
+    st.dataframe(df_filtered.head(500))
+
+# ---------- KPI Row ----------
+
+latest_row = monthly.iloc[-1]
+
+col1, col2, col3 = st.columns(3)
+col1.metric(
+    "Latest Month Revenue",
+    f"${latest_row['Revenue']:,.0f}",
+    f"{latest_row['Revenue_MoM_%']:.1f}% MoM" if pd.notna(latest_row["Revenue_MoM_%"]) else "N/A"
+)
+col2.metric(
+    "Latest Month Profit (w/o Tax)",
+    f"${latest_row['Profit']:,.0f}",
+    f"{latest_row['Profit_MoM_%']:.1f}% MoM" if pd.notna(latest_row["Profit_MoM_%"]) else "N/A"
+)
+col3.metric(
+    "Selected Range Total Revenue",
+    f"${df_filtered['Revenue'].sum():,.0f}"
+)
+
+st.markdown("---")
+
+# ---------- Charts: Revenue & Profit Over Time ----------
+
+left, right = st.columns(2)
+
 with left:
-    st.subheader('Revenue & Profit — monthly')
-    fig = px.line(agg, x='month_start', y=['revenue','profit'], labels={'value':'USD','month_start':'Month'}, markers=True)
-    st.plotly_chart(fig, use_container_width=True)
+    st.subheader("Revenue & Profit by Month")
 
-    st.subheader('Month-over-month revenue % change')
-    fig2 = px.bar(agg, x='month_start', y='revenue_mom_pct', labels={'revenue_mom_pct':'MoM %'})
-    st.plotly_chart(fig2, use_container_width=True)
+    fig_line = px.line(
+        monthly,
+        x="MonthStart",
+        y=["Revenue", "Profit"],
+        labels={"value": "USD", "MonthStart": "Month"},
+        markers=True
+    )
+    st.plotly_chart(fig_line, use_container_width=True)
 
-    st.subheader('Revenue: monthly breakdown by group (if grouping selected)')
-    if group_by:
-        grouped = filtered.groupby([pd.Grouper(key='__date', freq='M'), group_by]).agg(revenue=('__revenue','sum')).reset_index()
-        grouped['month_start'] = grouped['__date'].dt.to_period('M').dt.to_timestamp()
-        fig3 = px.bar(grouped, x='month_start', y='revenue', color=group_by, barmode='stack')
-        st.plotly_chart(fig3, use_container_width=True)
-    else:
-        st.info('Select a grouping column in the sidebar to see breakdowns by that dimension.')
+    st.subheader("Month-over-Month Revenue % Change")
+    fig_mom = px.bar(
+        monthly,
+        x="MonthStart",
+        y="Revenue_MoM_%",
+        labels={"Revenue_MoM_%": "Revenue MoM %", "MonthStart": "Month"}
+    )
+    st.plotly_chart(fig_mom, use_container_width=True)
 
 with right:
-    st.subheader('Recent months table')
-    st.dataframe(agg[['month','revenue','revenue_mom_pct','profit','profit_mom_pct','revenue_yoy_pct']].sort_values('month', ascending=False).head(12))
+    st.subheader("Yearly Revenue & Profit")
 
-    st.subheader('Monthly revenue heatmap (month vs year)')
-    # prepare heatmap
-    rev_pivot = agg.pivot_table(index='year', columns='month_number', values='revenue', aggfunc='sum')
-    if not rev_pivot.empty:
-        rev_pivot = rev_pivot.reindex(sorted(rev_pivot.index), axis=0)
-        rev_pivot = rev_pivot[[i for i in range(1,13)]]
-        # Replace numeric heatmap with color-coded heatmap
-# Heatmap removed per user request. Display numeric pivot table instead.
-# Heatmap fully removed to eliminate syntax errors
-# Simple revenue pivot table display
-#st.subheader('Monthly Revenue (pivot table)')
-#if not rev_pivot.empty:
- #   st.dataframe(rev_pivot)
-#else:
+    fig_year = px.bar(
+        yearly,
+        x="Year",
+        y=["Revenue", "Profit"],
+        barmode="group",
+        labels={"value": "USD"}
+    )
+    st.plotly_chart(fig_year, use_container_width=True)
 
-    #else:
-        #st.info('Not enough data for heatmap.')
+    st.subheader("Monthly Aggregates Table")
+    st.dataframe(
+        monthly[["MonthLabel", "Revenue", "Revenue_MoM_%", "Profit", "Profit_MoM_%"]]
+        .sort_values("MonthLabel", ascending=False)
+    )
 
-#st.markdown('---')
+st.markdown("---")
 
-# Additional analysis
-st.subheader('Deeper analysis')
-with st.expander('Top SKUs / Products (if available)'):
-    sku_cols = [c for c in filtered.columns if 'sku' in c.lower() or 'product' in c.lower() or 'item' in c.lower()]
-    if sku_cols:
-        sku = sku_cols[0]
-        top = filtered.groupby(sku).agg(revenue=('__revenue','sum'), profit=('__profit','sum'), count=(sku,'count')).reset_index().sort_values('revenue', ascending=False)
-        st.dataframe(top.head(25))
-    else:
-        st.info('No SKU or Product column detected.')
+# ---------- Extra: Cumulative Revenue ----------
 
-with st.expander('Payment method breakdown (if available)'):
-    pay_cols = [c for c in filtered.columns if 'pay' in c.lower() or 'method' in c.lower()]
-    if pay_cols:
-        pay = pay_cols[0]
-        pay_summary = filtered.groupby(pay).agg(revenue=('__revenue','sum'), count=(pay,'count')).reset_index().sort_values('revenue', ascending=False)
-        st.dataframe(pay_summary)
-        figpay = px.pie(pay_summary, names=pay, values='revenue')
-        st.plotly_chart(figpay, use_container_width=True)
-    else:
-        st.info('No payment method column detected.')
+st.subheader("Cumulative Revenue Over Time")
 
-st.markdown('---')
+monthly["Cumulative_Revenue"] = monthly["Revenue"].cumsum()
+fig_cum = px.line(
+    monthly,
+    x="MonthStart",
+    y="Cumulative_Revenue",
+    labels={"MonthStart": "Month", "Cumulative_Revenue": "Cumulative Revenue (USD)"},
+    markers=True
+)
+st.plotly_chart(fig_cum, use_container_width=True)
 
-# Export filtered data / aggregated data
-st.subheader('Export')
-st.write('Download the filtered raw data or the monthly aggregated CSV for reporting')
+# ---------- Export Options ----------
+
+st.markdown("---")
+st.subheader("Export Data")
 
 @st.cache_data
-def to_csv(df):
-    return df.to_csv(index=False).encode('utf-8')
+def to_csv_bytes(_df: pd.DataFrame) -> bytes:
+    return _df.to_csv(index=False).encode("utf-8")
 
-if st.button('Download filtered raw (CSV)'):
-    csv = to_csv(filtered)
-    st.download_button('Click to download filtered CSV', data=csv, file_name='filtered_sales.csv', mime='text/csv')
+col_exp1, col_exp2 = st.columns(2)
 
-csv_agg = to_csv(agg)
-st.download_button('Download monthly aggregates (CSV)', data=csv_agg, file_name='monthly_aggregates.csv', mime='text/csv')
-
-st.markdown('---')
-
-st.info('This dashboard is a template. If column names in your files differ from the common names, use the Column overrides in the sidebar to point to the correct columns (date, revenue, profit).')
-
-st.markdown('### Next steps / customization ideas')
-st.markdown('- Add margins by product category, more precise "profit without tax" if taxes are stored separately.\n- Add rolling 3/6/12-month averages.\n- Add forecasting (e.g., Prophet or ARIMA) for 2026 planning.\n- Add user login or environment variables for multi-store deployments.\n- Add automated report email (PDF) monthly using a scheduler.')
-
-# End of app
+with col_exp1:
+    st.download_button(
+        "Download filtered raw data (CSV)",
+        data=to
