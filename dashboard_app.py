@@ -257,4 +257,15 @@ col_exp1, col_exp2 = st.columns(2)
 with col_exp1:
     st.download_button(
         "Download filtered raw data (CSV)",
-        data=to
+        data=to_csv_bytes(df_filtered),
+        file_name="filtered_sales_raw.csv",
+        mime="text/csv"
+    )
+
+with col_exp2:
+    st.download_button(
+        "Download monthly aggregates (CSV)",
+        data=to_csv_bytes(monthly),
+        file_name="monthly_aggregates.csv",
+        mime="text/csv"
+    )
