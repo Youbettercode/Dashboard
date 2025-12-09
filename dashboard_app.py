@@ -297,7 +297,7 @@ try:
     fig_hm = px.imshow(rev_pivot.fillna(0), text_auto=True, aspect='auto', color_continuous_scale='YlOrRd')
     st.plotly_chart(fig_hm, use_container_width=True)
 except Exception:
-    st.dataframe(rev_pivot.fillna(0).astype(float))(0).astype(float))
+    st.dataframe(rev_pivot.fillna(0).astype(float))
     else:
         st.info('Not enough data for heatmap.')
 
